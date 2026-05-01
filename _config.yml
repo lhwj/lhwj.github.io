@@ -19,10 +19,6 @@ plugins:
 # 文章链接格式
 permalink: /:title/
 
-# 分页
-paginate: 10
-paginate_path: "/page/:num/"
-
 # 排除文件
 exclude:
   - README.md

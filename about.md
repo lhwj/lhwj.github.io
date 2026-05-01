@@ -1,9 +1,8 @@
 ---
 layout: page
 title: 关于
+permalink: /about/
 ---
-
-# 关于我
 
 我是李航，一个热爱技术的开发者。
 
