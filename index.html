@@ -61,12 +61,17 @@
             font-size: 0.9em;
             margin-top: 5px;
         }
-        .folder {
+        .folder-label {
+            background: #ecf0f1;
+            padding: 8px 20px;
             font-weight: bold;
             color: #2c3e50;
-            margin-top: 20px;
-            margin-bottom: 10px;
-            padding: 0 20px;
+            font-size: 0.95em;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
         }
         .footer {
             text-align: center;
@@ -80,36 +85,60 @@
     <h1>📚 我的个人知识总结</h1>
     <p class="subtitle">李航的技术笔记与文档整理</p>
     
-    <div class="doc-list">
-        <div class="doc-item">
-            <a href="mds/agent.markdown">🤖 Agent</a>
-            <p class="doc-desc">关于智能代理的相关笔记</p>
-        </div>
-        
-        <div class="doc-item">
-            <a href="mds/跨域.markdown">🌐 跨域</a>
-            <p class="doc-desc">跨域问题的解决方案与总结</p>
-        </div>
-        
-        <div class="folder">📁 algorithms</div>
-        <div class="doc-item">
-            <a href="mds/algorithms/">查看算法相关文档 →</a>
-        </div>
-        
-        <div class="folder">📁 java</div>
-        <div class="doc-item">
-            <a href="mds/java/">查看 Java 相关文档 →</a>
-        </div>
-        
-        <div class="folder">📁 tools</div>
-        <div class="doc-item">
-            <a href="mds/tools/code.md">🛠️ Code 工具</a>
-            <p class="doc-desc">代码工具相关笔记</p>
-        </div>
+    <div id="doc-list" class="doc-list">
+        <div class="loading">正在加载文档列表...</div>
     </div>
     
     <div class="footer">
         <p>© 2025 李航 | 使用 GitHub Pages 搭建</p>
     </div>
+
+    <script>
+        // 配置：你的文档仓库结构
+        const DOCS_CONFIG = {
+            // 根目录下的文档文件
+            rootFiles: [
+                { file: 'agent.markdown', title: '🤖 Agent', desc: '关于智能代理的相关笔记' },
+                { file: '跨域.markdown', title: '🌐 跨域', desc: '跨域问题的解决方案与总结' }
+            ],
+            // 子目录
+            folders: [
+                { path: 'algorithms', title: '📊 算法', desc: '算法与数据结构' },
+                { path: 'java', title: '☕ Java', desc: 'Java 相关技术' },
+                { path: 'tools', title: '🛠️ 工具', desc: '开发工具与效率工具' }
+            ]
+        };
+
+        // 生成文档列表
+        function generateDocList() {
+            const container = document.getElementById('doc-list');
+            let html = '';
+
+            // 根目录文件
+            DOCS_CONFIG.rootFiles.forEach(doc => {
+                html += `
+                    <div class="doc-item">
+                        <a href="mds/${doc.file}">${doc.title}</a>
+                        <p class="doc-desc">${doc.desc}</p>
+                    </div>
+                `;
+            });
+
+            // 子目录
+            DOCS_CONFIG.folders.forEach(folder => {
+                html += `
+                    <div class="folder-label">${folder.title}</div>
+                    <div class="doc-item">
+                        <a href="mds/${folder.path}/">${folder.desc} →</a>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        // 页面加载完成后生成列表
+        document.addEventListener('DOMContentLoaded', generateDocList);
+    </script>
 </body>
 </html>
