@@ -1,8 +1,8 @@
 ---
 layout: post
 title: "SpringBoot 响应式编程"
-date: 2026-05-23 10:00:00 +0800
-categories: 响应式编程
+date: 2026-05-23 00:00:00 +0800
+categories: [SpringBoot响应式编程]
 tags: [SpringBoot, Reactive]
 ---
 
@@ -120,8 +120,6 @@ public Mono<String> emptyUser() {
 - 条件查询列表，数据库无任何匹配数据
 
 - 流式数据生产无结果，直接结束数据流
-
-实战代码：
 
 ```java
 // 返回0个元素：空数据流，等同于空集合
@@ -284,7 +282,7 @@ public class RouteConfig {
 
 - **WebClient**：WebFlux 专用，**异步非阻塞**，全程不占用线程
 
-## 6\.2 WebClient 实战代码（非阻塞）
+## 6\.2 WebClient 代码（非阻塞）
 
 ```java
 @RestController
@@ -305,7 +303,7 @@ public class RemoteController {
 
 ```
 
-## 6\.3 RestTemplate 实战代码（阻塞，传统MVC专用）
+## 6\.3 RestTemplate 代码（阻塞，传统MVC专用）
 
 **核心特点**：同步阻塞调用，发起接口请求后，当前业务线程会卡死等待响应，全程占用线程资源，直至拿到结果才会释放，无法处理其他请求。
 
@@ -763,7 +761,6 @@ public class UserController {
 
 - 本质：空数据流时，替换一个固定结果
 
-实战对应代码：
 
 ```java
 // Mono空数据兜底，固定提示文本
@@ -780,8 +777,6 @@ public class UserController {
 - 支持：异步二次查询、兜底接口调用、复杂链式逻辑
 
 - 本质：空数据流时，**切换一整条新的响应式链路**
-
-实战对应代码：
 
 ```java
 // Flux空列表兜底，返回新的Flux数据流
