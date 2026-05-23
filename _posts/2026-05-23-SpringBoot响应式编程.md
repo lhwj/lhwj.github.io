@@ -535,7 +535,139 @@ WebFlux 全程基于少量 EventLoop 线程：
 
 2. **SSE流式响应（加协议头）**：数据来一条推一条，长连接持续推送，适合实时大屏、日志、消息通知
 
-## 8\.8 真实企业使用现状
+## 8\.8 WebFlux 核心线程切换
+
+**WebFlux 不会自动将阻塞/耗时代码变异步，所有传统同步费时操作（查库、RestTemplate调用、同步SDK），必须研发手动切线程、编排异步链路**，否则会直接阻塞 EventLoop 核心线程，废掉所有非阻塞性能。
+
+### 8\.8\.1 WebFlux 两类核心线程分工
+
+1\. **EventLoop 核心线程（默认CPU\*2）**
+
+只处理轻量、快速、非阻塞逻辑：路由分发、链式操作（map/filter）、结果回调响应，**绝对不能执行任何阻塞、耗时IO操作**，一旦阻塞，全局并发崩盘。
+
+2\. **Scheduler 调度线程池（业务异步线程）**
+
+专门承载所有阻塞、费时操作，是 WebFlux 实现真正异步的核心容器，开发使用：**Schedulers\.boundedElastic\(\)**（自动扩容、自动回收、适配IO阻塞场景）。
+WebFlux 提供 3 种常用线程池：
+- Schedulers.boundedElastic()： ✅ 最常用 ，IO 密集、慢操作、阻塞代码，自带线程池，安全、自动回收，WebFlux 处理阻塞代码首选！
+- Schedulers.parallel()：CPU 密集计算，专门做复杂计算、加密、解析、循环
+- Schedulers.single()：单线程串行执行，所有任务排队执行，不会并发，基本不用
+- Schedulers.immediate()：不创建线程、不换线程、不启动线程！放弃异步线程，直接在当前线程运行，回到当前执行线程（一般就是 EventLoop）
+
+
+### 8\.8\.2 两大切线程核心方法
+
+核心铁律：
+
+- **subscribeOn\(\)**：管控**整个数据流源头**，从数据生产阶段就切线程（适配阻塞数据源）
+
+- **publishOn\(\)**：只管控**这行方法调用后续的链式操作**，不影响前面的数据源生产逻辑
+
+#### 错误示范
+
+线程切换错误，导致阻塞EventLoop，性能完全失效：
+
+```java
+// ❌ 错误写法！publishOn只切后面，前面fromCallable阻塞代码仍在EventLoop执行
+public Mono<String> callRemote() {
+    return Mono.fromCallable(() -> {
+            // 同步阻塞代码（RestTemplate调用）
+            return restTemplate.getForObject(url, String.class);
+        })
+        .publishOn(Schedulers.boundedElastic()); // 仅切后续操作，源头阻塞未处理
+}
+
+```
+
+错误原因：`fromCallable` 是数据流**源头**，`publishOn` 只切换自身之后的线程，不会修改源头执行线程，阻塞代码依然跑在EventLoop，直接卡死核心线程。
+
+#### 正确示范
+
+```java
+public Mono<String> callRemote() {
+  return Mono.fromCallable(() -> {
+            // 1. 阻塞接口（线程：boundedElastic）
+            System.out.println("接口调用线程：" + Thread.currentThread().getName());
+            return restTemplate.getForObject(url, String.class);
+          })
+
+          // ============================
+          // 第一次切：源头阻塞 → 异步
+          // ============================
+          .subscribeOn(Schedulers.boundedElastic())
+
+          // ============================
+          // 源头执行完默认自动切回 EventLoop
+          // 第二次切：后续计算 → 异步
+          // ============================
+          .publishOn(Schedulers.boundedElastic())
+
+          .map(result -> {
+            // 2. 耗时计算（线程：boundedElastic）
+            System.out.println("计算线程：" + Thread.currentThread().getName());
+            try { Thread.sleep(1000); } catch (Exception e) {}
+            return "处理后→" + result;
+          })
+
+          // ============================
+          // 第三次切：手动切回当前EventLoop
+          // ============================
+          .publishOn(Schedulers.immediate())
+
+          .map(finalResult -> {
+            // 3. 最后一步：回到 EventLoop
+            System.out.println("最后封装线程：" + Thread.currentThread().getName());
+            return "【最终返回】" + finalResult;
+          });
+}
+
+```
+
+### 8\.8\.3 精准使用场景区分
+
+1. **subscribeOn 适用场景**
+
+  所有**阻塞数据源**：同步查库（MyBatis）、RestTemplate调用、同步SDK、耗时同步计算，只要是包裹在 `fromCallable`、`fromRunnable` 的阻塞逻辑，统一用 `subscribeOn`。
+- 只控制数据源（fromCallable、just、fromIterable）
+- 写在哪都一样（全局只生效一次）
+- 执行完默认自动切回 EventLoop
+- 作用：让阻塞的源头代码不卡主线程
+
+2. **publishOn 适用场景**
+
+  数据源本身是纯响应式（WebClient、R2DBC、ReactiveRedis），仅后续的**自定义复杂业务处理、数据转换、耗时计算**需要切线程时，使用 `publishOn`
+- 只控制它后面的所有操作（map / flatMap / filter…）
+- 写在哪，从哪开始切
+- 一旦加上，后面永远不回 EventLoop
+- 作用：让后续阻塞代码也不卡主线程
+
+### 8\.8\.4 完整执行流程
+
+  1\. 请求进入 EventLoop 核心线程，接收请求、初始化数据流
+  
+  2\. 遇到 `subscribeOn(Schedulers.boundedElastic())`，将整个数据流源头（阻塞查库/接口调用）移交异步线程池
+  
+  3\.**EventLoop 立即释放，去处理新请求，全程不阻塞、不等待**
+  
+  4\. 异步线程池执行耗时阻塞操作
+  
+  5\. 操作完成后，自动回调线程，执行后续 map、filter、结果封装逻辑
+  
+  6\. 最终响应返回前端
+
+### 8\.8\.5 核心总结（面试/实战必背）
+
+- WebFlux 不会自动异步，**所有传统阻塞代码必须手动切线程**
+
+- 阻塞数据源（fromCallable包裹）→ 用 **subscribeOn**
+
+- 响应式数据源、后续链式耗时操作 → 用**publishOn**
+
+- 严禁阻塞EventLoop线程，否则非阻塞特性完全失效
+
+---
+
+## 8\.9 企业使用现状
 
 - **普通业务CRUD**：依然用MVC（简单、好维护、团队上手快）
 
